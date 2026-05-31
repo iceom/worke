@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>文件上传示例</title>
+</head>
+<body>
+    <h3>文件上传测试（仅支持jpg/png/gif格式，单文件不超过10MB）</h3>
+    <!-- 关键：文件上传表单必须设置 enctype="multipart/form-data" -->
+    <form action="uploadServlet" method="post" enctype="multipart/form-data">
+        <input type="file" name="uploadFile" accept=".jpg,.png,.gif"><br><br>
+        <input type="submit" value="上传文件">
+    </form>
+</body>
+</html>
+package com.servlet;
+
+import javax.servlet.ServletException;
+import javax.servlet.http.HttpServlet;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.Part;
+import java.io.File;
+import java.io.IOException;
+import java.util.UUID;
+
+/**
+ * 文件上传Servlet：Servlet3.0内置Part API实现
+ * XML配置版，无注解依赖
+ */
+public class UploadServlet extends HttpServlet {
+    // 定义服务器文件保存目录（项目根目录下的upload文件夹）
+    private static final String UPLOAD_DIR = "/upload";
+
+    @Override
+    protected void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
+        // 1. 设置请求编码，防止中文文件名乱码
+        request.setCharacterEncoding("UTF-8");
+        response.setContentType("text/html;charset=UTF-8");
+
+        // 2. 获取项目真实路径，创建上传目录（目录不存在则自动创建）
+        String realPath = getServletContext().getRealPath(UPLOAD_DIR);
+        File uploadDir = new File(realPath);
+        if (!uploadDir.exists()) {
+            uploadDir.mkdirs();
+        }
+
+        // 3. 获取上传文件的Part对象（表单中name="uploadFile"）
+        Part part = request.getPart("uploadFile");
+        if (part == null || part.getSize() == 0) {
+            response.getWriter().write("请选择要上传的文件！");
+            return;
+        }
+
+        // 4. 获取原始文件名，校验文件格式与大小
+        String fileName = getFileName(part);
+        // 格式校验：仅允许图片
+        if (!fileName.toLowerCase().endsWith(".jpg") && !fileName.toLowerCase().endsWith(".png") && !fileName.toLowerCase().endsWith(".gif")) {
+            response.getWriter().write("上传失败：仅支持jpg/png/gif格式的图片！");
+            return;
+        }
+        // 大小校验：不超过10MB
+        if (part.getSize() > 10 * 1024 * 1024) {
+            response.getWriter().write("上传失败：文件大小不能超过10MB！");
+            return;
+        }
+
+        // 5. 生成新文件名，避免重名覆盖（UUID + 原始后缀）
+        String suffix = fileName.substring(fileName.lastIndexOf("."));
+        String newFileName = UUID.randomUUID().toString() + suffix;
+
+        // 6. 保存文件到服务器指定目录
+        part.write(realPath + File.separator + newFileName);
+
+        // 7. 上传成功提示
+        response.getWriter().write("文件上传成功！<br>服务器保存文件名：" + newFileName);
+    }
+
+    /**
+     * 从Part对象中解析原始文件名，兼容不同浏览器
+     */
+    private String getFileName(Part part) {
+        String header = part.getHeader("content-disposition");
+        // 解析格式：form-data; name="uploadFile"; filename="test.jpg"
+        String fileName = header.substring(header.lastIndexOf("filename=") + 9);
+        return fileName.replace("\"", ""); // 去除引号
+    }
+}
+<?xml version="1.0" encoding="UTF-8"?>
+<web-app xmlns="http://xmlns.jcp.org/xml/ns/javaee"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://xmlns.jcp.org/xml/ns/javaee
+         http://xmlns.jcp.org/xml/ns/javaee/web-app_4_0.xsd"
+         version="4.0">
+
+    <!-- 配置文件上传Servlet -->
+    <servlet>
+        <servlet-name>UploadServlet</servlet-name>
+        <servlet-class>com.servlet.UploadServlet</servlet-class>
+        <!-- 开启文件上传配置 -->
+        <multipart-config>
+            <location>/tmp</location>               <!-- 临时文件目录 -->
+            <max-file-size>10485760</max-file-size> <!-- 单个文件最大10MB -->
+            <max-request-size>20971520</max-request-size> <!-- 整个请求最大20MB -->
+            <file-size-threshold>4096</file-size-threshold> <!-- 内存阈值，超过写入临时文件 -->
+        </multipart-config>
+    </servlet>
+
+    <!-- Servlet请求映射 -->
+    <servlet-mapping>
+        <servlet-name>UploadServlet</servlet-name>
+        <url-pattern>/uploadServlet</url-pattern>
+    </servlet-mapping>
+
+</web-app>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>文件下载示例</title>
+</head>
+<body>
+    <h3>文件下载测试</h3>
+    <a href="downloadServlet?fileName=test.jpg">下载示例图片</a><br>
+    <a href="downloadServlet?fileName=文档.txt">下载示例文档</a>
+</body>
+</html>
+package com.servlet;
+
+import javax.servlet.ServletException;
+import javax.servlet.http.HttpServlet;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import java.io.*;
+import java.net.URLEncoder;
+
+/**
+ * 文件下载Servlet：读取服务器文件并输出到客户端
+ * XML配置版，无注解依赖
+ */
+public class DownloadServlet extends HttpServlet {
+    // 服务器文件存放目录（和上传目录一致）
+    private static final String FILE_DIR = "/upload";
+
+    @Override
+    protected void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
+        // 1. 设置请求编码，获取要下载的文件名
+        request.setCharacterEncoding("UTF-8");
+        String fileName = request.getParameter("fileName");
+        if (fileName == null || fileName.trim().isEmpty()) {
+            response.getWriter().write("请指定要下载的文件！");
+            return;
+        }
+
+        // 2. 获取文件真实路径，判断文件是否存在
+        String realPath = getServletContext().getRealPath(FILE_DIR) + File.separator + fileName;
+        File file = new File(realPath);
+        if (!file.exists() || !file.isFile()) {
+            response.getWriter().write("文件不存在！");
+            return;
+        }
+
+        // 3. 设置响应头，处理中文文件名乱码，让浏览器以下载方式打开
+        response.setContentType("application/octet-stream"); // 二进制流，通用下载类型
+        String encodedFileName = URLEncoder.encode(fileName, "UTF-8");
+        response.setHeader("Content-Disposition", "attachment;filename=" + encodedFileName);
+
+        // 4. 读取服务器文件，写入响应输出流
+        FileInputStream fis = new FileInputStream(file);
+        OutputStream os = response.getOutputStream();
+        byte[] buffer = new byte[1024];
+        int len;
+        while ((len = fis.read(buffer)) != -1) {
+            os.write(buffer, 0, len);
+        }
+
+        // 5. 关闭流资源
+        fis.close();
+        os.close();
+    }
+}
+<?xml version="1.0" encoding="UTF-8"?>
+<web-app xmlns="http://xmlns.jcp.org/xml/ns/javaee"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://xmlns.jcp.org/xml/ns/javaee
+         http://xmlns.jcp.org/xml/ns/javaee/web-app_4_0.xsd"
+         version="4.0">
+
+    <!-- 配置文件上传Servlet -->
+    <servlet>
+        <servlet-name>UploadServlet</servlet-name>
+        <servlet-class>com.servlet.UploadServlet</servlet-class>
+        <!-- 开启文件上传配置 -->
+        <multipart-config>
+            <location>/tmp</location>               <!-- 临时文件目录 -->
+            <max-file-size>10485760</max-file-size> <!-- 单个文件最大10MB -->
+            <max-request-size>20971520</max-request-size> <!-- 整个请求最大20MB -->
+            <file-size-threshold>4096</file-size-threshold> <!-- 内存阈值，超过写入临时文件 -->
+        </multipart-config>
+    </servlet>
+
+    <!-- Servlet请求映射 -->
+    <servlet-mapping>
+        <servlet-name>UploadServlet</servlet-name>
+        <url-pattern>/uploadServlet</url-pattern>
+    </servlet-mapping>
+
+</web-app>    <!-- 配置文件下载Servlet -->
+    <servlet>
+        <servlet-name>DownloadServlet</servlet-name>
+        <servlet-class>com.servlet.DownloadServlet</servlet-class>
+    </servlet>
+
+    <!-- Servlet请求映射 -->
+    <servlet-mapping>
+        <servlet-name>DownloadServlet</servlet-name>
+        <url-pattern>/downloadServlet</url-pattern>
+    </servlet-mapping>

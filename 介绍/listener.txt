@@ -1,0 +1,132 @@
+package com.listener;
+
+import javax.servlet.ServletContext;
+import javax.servlet.http.HttpSession;
+import javax.servlet.http.HttpSessionEvent;
+import javax.servlet.http.HttpSessionListener;
+
+/**
+ * 会话监听器：统计网站在线人数
+ * 监听事件：用户会话创建、用户会话销毁
+ */
+public class OnlineUserListener implements HttpSessionListener {
+
+    // 会话创建：用户首次访问网站，Session对象创建时触发
+    @Override
+    public void sessionCreated(HttpSessionEvent se) {
+        // 1. 获取当前会话对象
+        HttpSession session = se.getSession();
+        // 2. 获取全局应用域对象（所有用户共享）
+        ServletContext context = session.getServletContext();
+
+        // 3. 取出全局存储的在线人数
+        Integer onlineNum = (Integer) context.getAttribute("onlineNumber");
+        // 第一次访问，初始化人数为 0
+        if (onlineNum == null) {
+            onlineNum = 0;
+        }
+        // 新用户上线，人数 +1
+        onlineNum++;
+        // 将最新人数重新存入全局域
+        context.setAttribute("onlineNumber", onlineNum);
+
+        System.out.println("【监听器】新用户上线，当前在线人数：" + onlineNum);
+    }
+
+    // 会话销毁：用户关闭浏览器、会话超时、主动退出时触发
+    @Override
+    public void sessionDestroyed(HttpSessionEvent se) {
+        HttpSession session = se.getSession();
+        ServletContext context = session.getServletContext();
+
+        Integer onlineNum = (Integer) context.getAttribute("onlineNumber");
+        // 防止人数小于0
+        if (onlineNum != null && onlineNum > 0) {
+            onlineNum--;
+            context.setAttribute("onlineNumber", onlineNum);
+        }
+
+        System.out.println("【监听器】用户下线，当前在线人数：" + onlineNum);
+    }
+}
+package com.servlet;
+
+import javax.servlet.ServletContext;
+import javax.servlet.ServletException;
+import javax.servlet.http.HttpServlet;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.io.PrintWriter;
+
+/**
+ * 在线人数展示Servlet
+ */
+public class OnlineCountServlet extends HttpServlet {
+    @Override
+    protected void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
+        // 设置页面编码，防止中文乱码
+        response.setContentType("text/html;charset=UTF-8");
+        PrintWriter out = response.getWriter();
+
+        // 获取全局应用域
+        ServletContext context = this.getServletContext();
+        // 取出在线人数
+        Integer onlineNum = (Integer) context.getAttribute("onlineNumber");
+        // 空值判断
+        if (onlineNum == null) {
+            onlineNum = 0;
+        }
+
+        // 页面输出结果
+        out.write("<html>");
+        out.write("<head><title>在线人数统计</title></head>");
+        out.write("<body>");
+        out.write("<h2>网站当前在线用户数：" + onlineNum + " 人</h2>");
+        out.write("</body>");
+        out.write("</html>");
+    }
+}
+<?xml version="1.0" encoding="UTF-8"?>
+<web-app xmlns="http://xmlns.jcp.org/xml/ns/javaee"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://xmlns.jcp.org/xml/ns/javaee
+         http://xmlns.jcp.org/xml/ns/javaee/web-app_4_0.xsd"
+         version="4.0">
+
+    <!-- ===================== 1. 注册会话监听器 ===================== -->
+    <listener>
+        <!-- 指定监听器完整全类名：包名.类名 -->
+        <listener-class>com.listener.OnlineUserListener</listener-class>
+    </listener>
+
+    <!-- ===================== 2. 配置会话超时时间（单位：分钟） ===================== -->
+    <!-- 默认30分钟，这里改为2分钟，方便测试会话销毁效果 -->
+    <session-config>
+        <session-timeout>2</session-timeout>
+    </session-config>
+
+    <!-- ===================== 3. 注册在线人数展示Servlet ===================== -->
+    <servlet>
+        <servlet-name>OnlineCountServlet</servlet-name>
+        <servlet-class>com.servlet.OnlineCountServlet</servlet-class>
+    </servlet>
+
+    <!-- Servlet 请求映射 -->
+    <servlet-mapping>
+        <servlet-name>OnlineCountServlet</servlet-name>
+        <url-pattern>/showOnline</url-pattern>
+    </servlet-mapping>
+
+</web-app>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>在线人数测试</title>
+</head>
+<body>
+    <h3>JavaWeb 监听器 - 在线人数统计演示</h3>
+    <a href="showOnline">点击查看当前在线人数</a>
+</body>
+</html>
